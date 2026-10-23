@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Train Blocks check</title>
+<style>
+body { font: 18px -apple-system, system-ui, sans-serif; margin: 24px; background: #fbf6e9; color: #222; }
+h1 { font-size: 24px; }
+li { margin: 8px 0; }
+.ok { color: #1a7f37; } .bad { color: #c62828; } .wait { color: #777; }
+</style>
+</head>
+<body>
+<h1>Train Blocks: device check</h1>
+<p>If you can read this, the site is reachable. Take a screenshot of this page once every line has finished.</p>
+<ul id="out"></ul>
+<script>
+const out = document.getElementById("out");
+function row(label) {
+	const li = document.createElement("li");
+	li.innerHTML = `<b>${label}:</b> <span class="wait">checking…</span>`;
+	out.appendChild(li);
+	return (text, cls) => { li.lastChild.className = cls; li.lastChild.textContent = text; };
+}
+row("Browser")(navigator.userAgent, "");
+row("Screen")(`${screen.width}×${screen.height} @${devicePixelRatio}x`, "");
+const gl = document.createElement("canvas").getContext("webgl2");
+row("WebGL 2")(gl ? `yes (max texture ${gl.getParameter(gl.MAX_TEXTURE_SIZE)})` : "NO: the game needs WebGL 2 (iPadOS 15 or newer)", gl ? "ok" : "bad");
+const hasWasm = typeof WebAssembly === "object";
+row("WebAssembly")(hasWasm ? "yes" : "NO", hasWasm ? "ok" : "bad");
+let storageOk = false;
+try { localStorage.setItem("tb_check", "1"); storageOk = localStorage.getItem("tb_check") === "1"; } catch (e) {}
+row("Storage")(storageOk ? "yes" : "blocked (private browsing?)", storageOk ? "ok" : "bad");
+
+const dl = row("Download game engine (about 40 MB)");
+const compile = row("Start game engine");
+(async () => {
+	let phase = dl;
+	try {
+		const t0 = performance.now();
+		const resp = await fetch("index.wasm", { cache: "no-store" });
+		if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+		const total = +resp.headers.get("content-length") || 0;
+		const reader = resp.body.getReader();
+		const chunks = [];
+		let got = 0;
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			chunks.push(value);
+			got += value.length;
+			dl(`${(got / 1e6).toFixed(1)}${total ? " / " + (total / 1e6).toFixed(1) : ""} MB`, "wait");
+		}
+		dl(`ok, ${(got / 1e6).toFixed(1)} MB in ${((performance.now() - t0) / 1000).toFixed(1)} s`, "ok");
+		const bytes = new Uint8Array(got);
+		let o = 0;
+		for (const c of chunks) { bytes.set(c, o); o += c.length; }
+		phase = compile;
+		compile("compiling…", "wait");
+		const t1 = performance.now();
+		await WebAssembly.compile(bytes);
+		compile(`ok in ${((performance.now() - t1) / 1000).toFixed(1)} s`, "ok");
+		const li = document.createElement("li");
+		li.innerHTML = `<b>Result:</b> <span class="ok">this device can run the game.</span> <a href="./">Play</a>`;
+		out.appendChild(li);
+	} catch (e) {
+		phase(`FAILED: ${e && e.message ? e.message : e}`, "bad");
+	}
+})();
+</script>
+</body>
+</html>
